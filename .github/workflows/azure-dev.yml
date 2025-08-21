@@ -11,9 +11,7 @@ jobs:
   build:
     runs-on: ubuntu-latest
     env:
-      # ACR Tasksを使わず、Runner上のDockerでビルドさせる
       AZD_CONTAINER_BUILD_TYPE: docker
-      # azd pipeline config が repo の「Variables」に入れた値を使う想定
       AZURE_CLIENT_ID: ${{ vars.AZURE_CLIENT_ID }}
       AZURE_TENANT_ID: ${{ vars.AZURE_TENANT_ID }}
       AZURE_SUBSCRIPTION_ID: ${{ vars.AZURE_SUBSCRIPTION_ID }}
@@ -21,14 +19,13 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      # 念のため、remoteBuild:true を強制的に無効化
       - name: Disable ACR Tasks (CI only)
-        run: sed -i 's/remoteBuild: true/remoteBuild: false/' azure.yaml || true
+        run: |
+          sed -i 's/remoteBuild: true/remoteBuild: false/' azure.yaml || true
 
       - name: Install Azure Developer CLI
         uses: Azure/setup-azd@v2
 
-      # OIDC で Azure にログイン（PowerShellブロックは使わず、公式actionで確実に）
       - name: Azure login (OIDC)
         uses: azure/login@v2
         with:
@@ -36,12 +33,10 @@ jobs:
           tenant-id: ${{ env.AZURE_TENANT_ID }}
           subscription-id: ${{ env.AZURE_SUBSCRIPTION_ID }}
 
-      # インフラ作成／更新（Cloud Shell 側の azd provision に相当）
       - name: Provision Infrastructure
         run: azd provision --no-prompt
         env:
           AZD_INITIAL_ENVIRONMENT_CONFIG: ${{ secrets.AZD_INITIAL_ENVIRONMENT_CONFIG }}
 
-      # アプリのデプロイ（Runner上のDockerでビルド→ACRへpush→Container Appsへ反映）
       - name: Deploy Application
         run: azd deploy --no-prompt
