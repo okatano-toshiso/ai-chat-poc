@@ -1,79 +1,47 @@
 name: Deploy to Azure
 
-# Run when commits are pushed to main
 on:
   workflow_dispatch:
-  # push:
-  #   # Run when commits are pushed to mainline branch (main or master)
-  #   # Set this to the mainline branch you are using
-  #   branches:
-  #     - main
 
-# Set up permissions for deploying with secretless Azure federated credentials
-# https://learn.microsoft.com/en-us/azure/developer/github/connect-from-azure?tabs=azure-portal%2Clinux#set-up-azure-login-with-openid-connect-authentication
 permissions:
   id-token: write
   contents: read
-
 
 jobs:
   build:
     runs-on: ubuntu-latest
     env:
+      # ACR Tasksを使わず、Runner上のDockerでビルドさせる
+      AZD_CONTAINER_BUILD_TYPE: docker
+      # azd pipeline config が repo の「Variables」に入れた値を使う想定
       AZURE_CLIENT_ID: ${{ vars.AZURE_CLIENT_ID }}
       AZURE_TENANT_ID: ${{ vars.AZURE_TENANT_ID }}
       AZURE_SUBSCRIPTION_ID: ${{ vars.AZURE_SUBSCRIPTION_ID }}
-      AZURE_ENV_NAME: ${{ vars.AZURE_ENV_NAME }}
-      AZURE_LOCATION: ${{ vars.AZURE_LOCATION }}
-      AZURE_RESOURCE_GROUP: ${{ vars.AZURE_RESOURCE_GROUP }}
-      AZURE_AIHUB_NAME: ${{ vars.AZURE_AIHUB_NAME }}
-      AZURE_AIPROJECT_NAME: ${{ vars.AZURE_AIPROJECT_NAME }}
-      AZURE_AISERVICES_NAME: ${{ vars.AZURE_AISERVICES_NAME }}
-      AZURE_SEARCH_SERVICE_NAME: ${{ vars.AZURE_SEARCH_SERVICE_NAME }}
-      AZURE_APPLICATION_INSIGHTS_NAME: ${{ vars.AZURE_APPLICATION_INSIGHTS_NAME }}
-      AZURE_CONTAINER_REGISTRY_NAME: ${{ vars.AZURE_CONTAINER_REGISTRY_NAME }}
-      AZURE_KEYVAULT_NAME: ${{ vars.AZURE_KEYVAULT_NAME }}
-      AZURE_STORAGE_ACCOUNT_NAME: ${{ vars.AZURE_STORAGE_ACCOUNT_NAME }}
-      AZURE_LOG_ANALYTICS_WORKSPACE_NAME: ${{ vars.AZURE_LOG_ANALYTICS_WORKSPACE_NAME }}
-      USE_CONTAINER_REGISTRY: ${{ vars.USE_CONTAINER_REGISTRY }}
-      USE_APPLICATION_INSIGHTS: ${{ vars.USE_APPLICATION_INSIGHTS }}
-      USE_SEARCH_SERVICE: ${{ vars.USE_SEARCH_SERVICE }}
-      AZURE_AI_CHAT_DEPLOYMENT_NAME: ${{ vars.AZURE_AI_CHAT_DEPLOYMENT_NAME }}
-      AZURE_AI_CHAT_DEPLOYMENT_SKU: ${{ vars.AZURE_AI_CHAT_DEPLOYMENT_SKU }}
-      AZURE_AI_CHAT_DEPLOYMENT_CAPACITY: ${{ vars.AZURE_AI_CHAT_DEPLOYMENT_CAPACITY }}
-      AZURE_AI_CHAT_MODEL_FORMAT: ${{ vars.AZURE_AI_CHAT_MODEL_FORMAT }}
-      AZURE_AI_CHAT_MODEL_NAME: ${{ vars.AZURE_AI_CHAT_MODEL_NAME }}
-      AZURE_AI_CHAT_MODEL_VERSION: ${{ vars.AZURE_AI_CHAT_MODEL_VERSION }}
-      AZURE_AI_EMBED_DEPLOYMENT_NAME: ${{ vars.AZURE_AI_EMBED_DEPLOYMENT_NAME }}
-      AZURE_AI_EMBED_DEPLOYMENT_SKU: ${{ vars.AZURE_AI_EMBED_DEPLOYMENT_SKU }}
-      AZURE_AI_EMBED_DEPLOYMENT_CAPACITY: ${{ vars.AZURE_AI_EMBED_DEPLOYMENT_CAPACITY }}
-      AZURE_AI_EMBED_MODEL_FORMAT: ${{ vars.AZURE_AI_EMBED_MODEL_FORMAT }}
-      AZURE_AI_EMBED_MODEL_NAME: ${{ vars.AZURE_AI_EMBED_MODEL_NAME }}
-      AZURE_AI_EMBED_MODEL_VERSION: ${{ vars.AZURE_AI_EMBED_MODEL_VERSION }}
-      AZURE_EXISTING_AIPROJECT_RESOURCE_ID: ${{ vars.AZURE_EXISTING_AIPROJECT_RESOURCE_ID }}
-      AZD_CONTAINER_BUILD_TYPE: docker
     steps:
       - name: Checkout
         uses: actions/checkout@v4
-      - name: Force docker build on runner
-        run: echo "AZD_CONTAINER_BUILD_TYPE=docker" >> $GITHUB_ENV
+
+      # 念のため、remoteBuild:true を強制的に無効化
       - name: Disable ACR Tasks (CI only)
         run: sed -i 's/remoteBuild: true/remoteBuild: false/' azure.yaml || true
-      - name: Install azd
-        uses: Azure/setup-azd@v2.0.0
-      - name: Log in with Azure (Federated Credentials)
-        run: |
-          azd auth login `
-            --client-id "$Env:AZURE_CLIENT_ID" `
-            --federated-credential-provider "github" `
-            --tenant-id "$Env:AZURE_TENANT_ID"
-        shell: pwsh
 
+      - name: Install Azure Developer CLI
+        uses: Azure/setup-azd@v2
 
+      # OIDC で Azure にログイン（PowerShellブロックは使わず、公式actionで確実に）
+      - name: Azure login (OIDC)
+        uses: azure/login@v2
+        with:
+          client-id: ${{ env.AZURE_CLIENT_ID }}
+          tenant-id: ${{ env.AZURE_TENANT_ID }}
+          subscription-id: ${{ env.AZURE_SUBSCRIPTION_ID }}
+
+      # インフラ作成／更新（Cloud Shell 側の azd provision に相当）
       - name: Provision Infrastructure
         run: azd provision --no-prompt
         env:
           AZD_INITIAL_ENVIRONMENT_CONFIG: ${{ secrets.AZD_INITIAL_ENVIRONMENT_CONFIG }}
 
+      # アプリのデプロイ（Runner上のDockerでビルド→ACRへpush→Container Appsへ反映）
       - name: Deploy Application
         run: azd deploy --no-prompt
