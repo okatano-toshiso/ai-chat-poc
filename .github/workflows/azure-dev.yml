@@ -51,9 +51,14 @@ jobs:
       AZURE_AI_EMBED_MODEL_NAME: ${{ vars.AZURE_AI_EMBED_MODEL_NAME }}
       AZURE_AI_EMBED_MODEL_VERSION: ${{ vars.AZURE_AI_EMBED_MODEL_VERSION }}
       AZURE_EXISTING_AIPROJECT_RESOURCE_ID: ${{ vars.AZURE_EXISTING_AIPROJECT_RESOURCE_ID }}
+      AZD_CONTAINER_BUILD_TYPE: docker
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+      - name: Force docker build on runner
+        run: echo "AZD_CONTAINER_BUILD_TYPE=docker" >> $GITHUB_ENV
+      - name: Disable ACR Tasks (CI only)
+        run: sed -i 's/remoteBuild: true/remoteBuild: false/' azure.yaml || true
       - name: Install azd
         uses: Azure/setup-azd@v2.0.0
       - name: Log in with Azure (Federated Credentials)
